@@ -7,22 +7,8 @@
 
 #define OUTPUT_BUFFER_SIZE 0
 #define INPUT_BUFFER_SIZE 10
-#define DEVICE_INFO NULL
-#define DRIVER_INFO NULL
 #define TIME_PROC ((PmTimeProcPtr)Pt_Time)
 #define TIME_INFO NULL
-#define TIME_START                                                             \
-  Pt_Start(1, 0, 0) /* timer started w/millisecond accuracy                    \
-                     */
-
-inline uint16_t Reverse16(uint16_t value) {
-  return (((value & 0x00FF) << 8) | ((value & 0xFF00) >> 8));
-}
-
-inline uint32_t Reverse32(uint32_t value) {
-  return (((value & 0x000000FF) << 24) | ((value & 0x0000FF00) << 8) |
-          ((value & 0x00FF0000) >> 8) | ((value & 0xFF000000) >> 24));
-}
 
 int main() {
   int result = 0;
@@ -107,9 +93,6 @@ int main() {
             //        (long)Pm_MessageData2(buffer[0].message));
 
             int actualLength = 0;
-            // uint32_t reversed = Reverse32(buffer[0].message) >> 8;
-            // uint32_t reversed = buffer[0].message;
-            // printf("%x\n", reversed);
             unsigned char sendBuffer[] = {
                 ((Pm_MessageStatus(buffer[0].message) & 0xF)) |
                     ((Pm_MessageStatus(buffer[0].message) & 0xF0) >> 4),
@@ -152,16 +135,7 @@ int main() {
             Pm_Write(out, &event, 1);
           }
         }
-
-        // if (actualLength == sizeof(PmMessage)) {
-        //   PmEvent event;
-        //   event.timestamp = Pt_Time();
-        //   event.message = readBuffer;
-        //   Pm_Write(out, &event, 1);
-        // }
       }
-
-      // Pt_Sleep(10000);
 
       Pm_Terminate();
 
