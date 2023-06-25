@@ -74,43 +74,42 @@ int main() {
       printf("Created/Opened input %d and output %d\n", in_id, out_id);
       Pm_SetFilter(in, PM_FILT_ACTIVE | PM_FILT_CLOCK | PM_FILT_SYSEX);
 
-      /* empty the buffer after setting filter, just in case anything got
-       * through */
+      // Empty the buffer, just in case anything got through
       while (Pm_Poll(in)) {
         Pm_Read(in, buffer, 1);
       }
 
+      // Arbitrarily big buffer
+      const int sendBufferNEvents = 1024;
+      unsigned char sendBuffer[sendBufferNEvents * 4] = {0};
+
       while (true) {
         // Read from virtual port
-        PmError status = Pm_Poll(in);
-        if (status == TRUE) {
-          int length = Pm_Read(in, buffer, 1);
-          if (length > 0) {
+        int length = Pm_Read(in, buffer, 1);
+        if (length == pmBufferOverflow || length > sendBufferNEvents) {
+          std::cout << "Buffer overflow!" << std::endl;
+        }
+        if (length > 0) {
+          for (size_t i = 0; i < length; i++) {
             // printf("Got message: time %ld, %2lx %2lx %2lx\n",
             //        (long)buffer[0].timestamp,
             //        (long)Pm_MessageStatus(buffer[0].message),
             //        (long)Pm_MessageData1(buffer[0].message),
             //        (long)Pm_MessageData2(buffer[0].message));
 
-            int actualLength = 0;
-            unsigned char sendBuffer[] = {
-                ((Pm_MessageStatus(buffer[0].message) & 0xF0) >> 4),
-                Pm_MessageStatus(buffer[0].message),
-                Pm_MessageData1(buffer[0].message),
-                Pm_MessageData2(buffer[0].message)};
-            // for (size_t i = 0; i < sizeof(sendBuffer); i++) {
-            //   printf("%02X", sendBuffer[i]);
-            // }
-            // std::cout << std::endl;
-            result =
-                libusb_bulk_transfer(handle, 0x02, sendBuffer,
-                                     sizeof(sendBuffer), &actualLength, 100);
-            // std::cout << "Result: " << libusb_error_name(result) <<
-            // std::endl; std::cout << "Actual length: " << actualLength <<
-            // std::endl;
-          } else {
-            assert(0);
+            sendBuffer[i * 4 + 0] =
+                (Pm_MessageStatus(buffer[i].message) & 0xF0) >> 4;
+            sendBuffer[i * 4 + 1] = Pm_MessageStatus(buffer[i].message);
+            sendBuffer[i * 4 + 2] = Pm_MessageData1(buffer[i].message);
+            sendBuffer[i * 4 + 3] = Pm_MessageData2(buffer[i].message);
           }
+
+          int actualLength = 0;
+          result = libusb_bulk_transfer(handle, 0x02, sendBuffer, length * 4,
+                                        &actualLength, 1);
+          // std::cout << "Result: " << libusb_error_name(result) <<
+          // std::endl; std::cout << "Actual length: " << actualLength <<
+          // std::endl;
         }
 
         // Read from USB
