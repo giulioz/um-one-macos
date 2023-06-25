@@ -94,8 +94,7 @@ int main() {
 
             int actualLength = 0;
             unsigned char sendBuffer[] = {
-                ((Pm_MessageStatus(buffer[0].message) & 0xF)) |
-                    ((Pm_MessageStatus(buffer[0].message) & 0xF0) >> 4),
+                ((Pm_MessageStatus(buffer[0].message) & 0xF0) >> 4),
                 Pm_MessageStatus(buffer[0].message),
                 Pm_MessageData1(buffer[0].message),
                 Pm_MessageData2(buffer[0].message)};
