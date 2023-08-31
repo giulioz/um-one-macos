@@ -4,6 +4,7 @@
 #include <iomanip>
 #include <iostream>
 #include <stdio.h>
+#include <vector>
 
 #define OUTPUT_BUFFER_SIZE 0
 #define INPUT_BUFFER_SIZE 10
@@ -72,7 +73,7 @@ int main() {
       Pm_OpenOutput(&out, out_id, NULL, OUTPUT_BUFFER_SIZE, TIME_PROC,
                     TIME_INFO, 0);
       printf("Created/Opened input %d and output %d\n", in_id, out_id);
-      Pm_SetFilter(in, PM_FILT_ACTIVE | PM_FILT_CLOCK | PM_FILT_SYSEX);
+      Pm_SetFilter(in, PM_FILT_ACTIVE | PM_FILT_CLOCK);
 
       // Empty the buffer, just in case anything got through
       while (Pm_Poll(in)) {
@@ -83,25 +84,136 @@ int main() {
       const int sendBufferNEvents = 1024;
       unsigned char sendBuffer[sendBufferNEvents * 4] = {0};
 
+      bool sysexSendMode = false;
+      std::vector<unsigned char> sysexOutBytes;
+      std::vector<unsigned char> sysexInBytes;
+
+      auto flushSysexToUSB = [&]() {
+        std::vector<unsigned char> sysexSendBytes;
+        for (size_t i = 0; i < sysexOutBytes.size(); i += 3) {
+          if (i == sysexOutBytes.size() - 3) {
+            sysexSendBytes.push_back(0x07);
+            sysexSendBytes.push_back(sysexOutBytes[i + 0]);
+            sysexSendBytes.push_back(sysexOutBytes[i + 1]);
+            sysexSendBytes.push_back(sysexOutBytes[i + 2]);
+          } else if (i == sysexOutBytes.size() - 2) {
+            sysexSendBytes.push_back(0x06);
+            sysexSendBytes.push_back(sysexOutBytes[i + 0]);
+            sysexSendBytes.push_back(sysexOutBytes[i + 1]);
+          } else if (i == sysexOutBytes.size() - 1) {
+            sysexSendBytes.push_back(0x05);
+            sysexSendBytes.push_back(sysexOutBytes[i + 0]);
+          } else {
+            sysexSendBytes.push_back(0x04);
+            sysexSendBytes.push_back(sysexOutBytes[i + 0]);
+            sysexSendBytes.push_back(sysexOutBytes[i + 1]);
+            sysexSendBytes.push_back(sysexOutBytes[i + 2]);
+          }
+        }
+
+        int actualLength = 0;
+        libusb_bulk_transfer(handle, 0x02, &sysexSendBytes[0],
+                             sysexSendBytes.size(), &actualLength, 1);
+        sysexOutBytes.clear();
+
+        // printf("Sending sysex: ");
+        // for (size_t i = 0; i < sysexSendBytes.size(); i++) {
+        //   printf("%02x ", sysexSendBytes[i]);
+        // }
+        // printf("\n");
+      };
+
+      auto flushSysexToHost = [&]() {
+        if (sysexInBytes.size() < 4) {
+          sysexInBytes.push_back(0);
+          sysexInBytes.push_back(0);
+          sysexInBytes.push_back(0);
+          sysexInBytes.push_back(0);
+        }
+
+        PmEvent event;
+        event.timestamp = Pt_Time();
+        event.message = (sysexInBytes[0] << 0) | (sysexInBytes[1] << 8) |
+                        (sysexInBytes[2] << 16) | (sysexInBytes[3] << 24);
+        Pm_Write(out, &event, 1);
+
+        sysexInBytes.clear();
+      };
+
+      auto pushSysexToUSB = [&](unsigned char byte) {
+        if (sysexOutBytes.size() == 48) {
+          flushSysexToUSB();
+        }
+        sysexOutBytes.push_back(byte);
+      };
+
+      auto endSysexToUSB = [&](unsigned char byte) {
+        if (sysexOutBytes.size() == 48) {
+          flushSysexToUSB();
+        }
+        sysexOutBytes.push_back(byte);
+        flushSysexToUSB();
+      };
+
       while (true) {
         // Read from virtual port
-        int length = Pm_Read(in, buffer, 1);
+        int length = Pm_Read(in, buffer, sendBufferNEvents);
         if (length == pmBufferOverflow || length > sendBufferNEvents) {
           std::cout << "Buffer overflow!" << std::endl;
         }
+
         if (length > 0) {
           for (size_t i = 0; i < length; i++) {
-            // printf("Got message: time %ld, %2lx %2lx %2lx\n",
-            //        (long)buffer[0].timestamp,
-            //        (long)Pm_MessageStatus(buffer[0].message),
-            //        (long)Pm_MessageData1(buffer[0].message),
-            //        (long)Pm_MessageData2(buffer[0].message));
+            // printf("Got message: time %ld, %02x %02x %02x %02x\n",
+            //        (long)buffer[i].timestamp,
+            //        Pm_MessageStatus(buffer[i].message),
+            //        Pm_MessageData1(buffer[i].message),
+            //        Pm_MessageData2(buffer[i].message),
+            //        (buffer[i].message >> 24) & 0xFF);
 
-            sendBuffer[i * 4 + 0] =
-                (Pm_MessageStatus(buffer[i].message) & 0xF0) >> 4;
-            sendBuffer[i * 4 + 1] = Pm_MessageStatus(buffer[i].message);
-            sendBuffer[i * 4 + 2] = Pm_MessageData1(buffer[i].message);
-            sendBuffer[i * 4 + 3] = Pm_MessageData2(buffer[i].message);
+            if (!sysexSendMode && Pm_MessageStatus(buffer[i].message) == 0xF0) {
+              sysexSendMode = true;
+            }
+
+            if (sysexSendMode) {
+              auto b1 = (buffer[i].message >> 0) & 0xFF;
+              if (b1 != 0xF0 && b1 & 0b10000000) {
+                endSysexToUSB(b1);
+                sysexSendMode = false;
+              } else if (sysexSendMode) {
+                pushSysexToUSB(b1);
+              }
+
+              auto b2 = (buffer[i].message >> 8) & 0xFF;
+              if (b2 != 0xF0 && b2 & 0b10000000) {
+                endSysexToUSB(b2);
+                sysexSendMode = false;
+              } else if (sysexSendMode) {
+                pushSysexToUSB(b2);
+              }
+
+              auto b3 = (buffer[i].message >> 16) & 0xFF;
+              if (b3 != 0xF0 && b3 & 0b10000000) {
+                endSysexToUSB(b3);
+                sysexSendMode = false;
+              } else if (sysexSendMode) {
+                pushSysexToUSB(b3);
+              }
+
+              auto b4 = (buffer[i].message >> 24) & 0xFF;
+              if (b4 != 0xF0 && b4 & 0b10000000) {
+                endSysexToUSB(b4);
+                sysexSendMode = false;
+              } else if (sysexSendMode) {
+                pushSysexToUSB(b4);
+              }
+            } else {
+              sendBuffer[i * 4 + 0] =
+                  (Pm_MessageStatus(buffer[i].message) & 0xF0) >> 4;
+              sendBuffer[i * 4 + 1] = Pm_MessageStatus(buffer[i].message);
+              sendBuffer[i * 4 + 2] = Pm_MessageData1(buffer[i].message);
+              sendBuffer[i * 4 + 3] = Pm_MessageData2(buffer[i].message);
+            }
           }
 
           int actualLength = 0;
@@ -125,12 +237,39 @@ int main() {
           // std::cout << std::endl;
 
           for (size_t i = 0; i < actualLength / 4; i++) {
-            PmEvent event;
-            event.timestamp = Pt_Time();
-            event.message = (readBuffer[1] << 0) | (readBuffer[2] << 8) |
-                            (readBuffer[3] << 16);
-            printf("%08X\n", event.message);
-            Pm_Write(out, &event, 1);
+            auto controlByte = readBuffer[i * 4];
+            auto b1 = readBuffer[i * 4 + 1];
+            auto b2 = readBuffer[i * 4 + 2];
+            auto b3 = readBuffer[i * 4 + 3];
+            // printf("%02x %02x %02x %02x\n", controlByte, b1, b2, b3);
+
+            if (controlByte == 0x04) {
+              sysexInBytes.push_back(b1);
+              if (sysexInBytes.size() == 4)
+                flushSysexToHost();
+              sysexInBytes.push_back(b2);
+              if (sysexInBytes.size() == 4)
+                flushSysexToHost();
+              sysexInBytes.push_back(b3);
+              if (sysexInBytes.size() == 4)
+                flushSysexToHost();
+            } else if (controlByte >= 0x05 || controlByte <= 0x07) {
+              sysexInBytes.push_back(b1);
+              if (sysexInBytes.size() == 4)
+                flushSysexToHost();
+              sysexInBytes.push_back(b2);
+              if (sysexInBytes.size() == 4)
+                flushSysexToHost();
+              sysexInBytes.push_back(b3);
+              flushSysexToHost();
+            } else {
+              PmEvent event;
+              event.timestamp = Pt_Time();
+              event.message = (readBuffer[i * 4 + 1] << 0) |
+                              (readBuffer[i * 4 + 2] << 8) |
+                              (readBuffer[i * 4 + 3] << 16);
+              Pm_Write(out, &event, 1);
+            }
           }
         }
       }
