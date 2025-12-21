@@ -1,10 +1,10 @@
-#include "libusb.h"
-#include "portmidi.h"
-#include "porttime.h"
 #include <iomanip>
 #include <iostream>
 #include <stdio.h>
 #include <vector>
+#include <libusb-1.0/libusb.h>
+#include <portmidi.h>
+#include <porttime.h>
 
 #define OUTPUT_BUFFER_SIZE 0
 #define INPUT_BUFFER_SIZE 10
@@ -60,7 +60,7 @@ int main() {
       sysdepinfo->structVersion = PM_SYSDEPINFO_VERS;
       sysdepinfo->length = 1;
       sysdepinfo->properties[0].key = pmKeyCoreMidiManufacturer;
-      char *strRoland = "Roland";
+      const char *strRoland = "Roland";
       sysdepinfo->properties[0].value = strRoland;
 
       int in_id = Pm_CreateVirtualInput("UM-ONE", NULL, sysdepinfo);

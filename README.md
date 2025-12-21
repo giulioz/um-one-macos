@@ -13,35 +13,18 @@ Roland stopped maintaining the macOS drivers for the original [UM-ONE](https://w
 - [PortMIDI](https://github.com/PortMidi/portmidi)
 - [libusb](https://github.com/libusb/libusb)
 
+You can easily install the dependencies with [Homebrew](https://brew.sh/):
+```
+brew install libusb portmidi
+```
+
 ### Building
 
 ```
 git clone https://github.com/giulioz/um-one-macos.git
 cd um-one-macos
-git submodule update --init --recursive
-cd deps/libusb
-./autogen.sh
+cmake .
 make
-cd ../portmidi
-mkdir build
-cd build
-cmake -DBUILD_SHARED_LIBS=OFF ..
-make
-cd ../../..
-gcc driver.cpp \
-  deps/libusb/libusb/.libs/libusb-1.0.a \
-  deps/portmidi/build/libportmidi.a \
-  -std=c++23 \
-  -I deps/libusb/libusb \
-  -I deps/portmidi/pm_common/ \
-  -I deps/portmidi/porttime/ \
-  -framework Foundation \
-  -framework IOKit \
-  -framework Security \
-  -framework CoreMIDI \
-  -framework CoreAudio \
-  -lstdc++ \
-  -o driver
 ```
 
 ### Running
