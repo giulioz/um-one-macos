@@ -1,6 +1,0 @@
-[submodule "deps/portmidi"]
-	path = deps/portmidi
-	url = https://github.com/PortMidi/portmidi.git
-[submodule "deps/libusb"]
-	path = deps/libusb
-	url = https://github.com/libusb/libusb.git

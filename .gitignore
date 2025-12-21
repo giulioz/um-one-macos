@@ -1,0 +1,8 @@
+# CMake generated files
+CMakeCache.txt
+CMakeFiles
+Makefile
+cmake_install.cmake
+
+# Output files
+driver
